@@ -90,6 +90,9 @@ export default function CreateAccount() {
         Don't have an account?{" "}
         <Link to="/create-account">Create One &rarr;</Link>
       </Switcher>
+      <Switcher>
+        Foggot Your Password? <Link to="/reset-password">Click Here &rarr;</Link>
+      </Switcher>
       <GithubButton />
     </Wrapper>
   );
