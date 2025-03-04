@@ -28,15 +28,39 @@ const MenuItem = styled.div`
   height: 50px;
   width: 50px;
   border-radius: 50%;
+  position: relative; /* 툴팁 위치 기준점 설정 */
+
   svg {
     width: 30px;
     fill: white;
   }
+
   &.log-out {
     border-color: tomato;
     svg {
       fill: tomato;
     }
+  }
+
+  &:hover::after {
+    content: attr(data-tooltip); /* data-tooltip 속성 값 표시 */
+    position: absolute;
+
+    bottom: -20px; /* 아이콘 아래로 위치 조정 */
+    left: 50%;
+    transform: translateX(-25%);
+    background-color: rgba(0, 0, 0, 0.8); /* 반투명 검정 배경 */
+    color: white;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 10; /* 다른 요소 위에 표시 */
+    opacity: 1; /* 호버 시 완전히 보이도록 */
+  }
+  &:not(:hover)::after {
+    opacity: 0; /* 호버 해제 시 숨김 */
+    transition: opacity 0.2s ease; /* 부드러운 전환 효과 */
   }
 `;
 
@@ -53,7 +77,7 @@ export default function Layout() {
     <Wrapper>
       <Menu>
         <Link to="/">
-          <MenuItem>
+          <MenuItem data-tooltip="Home">
             <svg
               fill="currentColor"
               viewBox="0 0 20 20"
@@ -69,7 +93,7 @@ export default function Layout() {
           </MenuItem>
         </Link>
         <Link to="/profile">
-          <MenuItem>
+          <MenuItem data-tooltip="Profile">
             <svg
               fill="currentColor"
               viewBox="0 0 20 20"
@@ -80,7 +104,7 @@ export default function Layout() {
             </svg>
           </MenuItem>
         </Link>
-        <MenuItem onClick={onLogOut} className="log-out">
+        <MenuItem onClick={onLogOut} className="log-out" data-tooltip="Log Out">
           <svg
             fill="currentColor"
             viewBox="0 0 20 20"

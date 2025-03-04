@@ -1,23 +1,25 @@
 import { styled } from "styled-components";
 import { auth, db } from "../firebase";
-import { useEffect, useState } from "react";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { useEffect, useState, useRef } from "react";
+import { doc, setDoc, getDoc, QueryDocumentSnapshot, onSnapshot, getDocs } from "firebase/firestore";
 import {
   collection,
-  getDocs,
   limit,
   orderBy,
   query,
   where,
+  startAfter,
 } from "firebase/firestore";
 import { ITweet } from "../components/timeline";
 import Tweet from "../components/tweet";
+import Footer from "../components/footer";
 
 const Wrapper = styled.div`
   display: flex;
   align-items: center;
   flex-direction: column;
   gap: 20px;
+  padding-bottom: 50px;
 `;
 
 const AvatarUpload = styled.label`
@@ -55,6 +57,12 @@ const Tweets = styled.div`
 `;
 
 const NoTweetsMessage = styled.p`
+  font-size: 16px;
+  color: #666;
+  text-align: center;
+`;
+
+const LoadingMessage = styled.p`
   font-size: 16px;
   color: #666;
   text-align: center;
@@ -126,6 +134,11 @@ export default function Profile() {
   const user = auth.currentUser;
   const [avatar, setAvatar] = useState<string | null>(user?.photoURL || null);
   const [tweets, setTweets] = useState<ITweet[]>([]);
+  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const observer = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // 프로필 데이터 가져오기
   const fetchProfile = async () => {
@@ -164,24 +177,26 @@ export default function Profile() {
     }
   };
 
-  // 트윗 가져오기
-  const fetchTweets = async () => {
-    if (!user) {
-      console.log("No user logged in");
-      return;
-    }
+  // 트윗 가져오기 (초기 및 추가 로드)
+  const fetchTweets = async (isInitialLoad = false) => {
+    if (!user || !hasMore || isLoading) return;
+
+    setIsLoading(true);
     try {
       const tweetQuery = query(
         collection(db, "tweets"),
         where("userId", "==", user.uid),
         orderBy("createdAt", "desc"),
-        limit(5)
+        limit(5),
+        ...(lastDoc && !isInitialLoad ? [startAfter(lastDoc)] : [])
       );
+
       const snapshot = await getDocs(tweetQuery);
-      console.log("Fetched tweet docs:", snapshot.docs.length); // 디버깅 로그
-      const tweets = snapshot.docs.map((doc) => {
+      console.log("Fetched tweet docs:", snapshot.docs.length);
+      console.log("Last doc ID:", lastDoc?.id);
+
+      const newTweets = snapshot.docs.map((doc) => {
         const { tweet, createdAt, userId, username, photo } = doc.data();
-        // console.log("Tweet data:", { tweet, createdAt, userId, username, photo }); // 각 트윗 데이터 확인
         return {
           tweet,
           createdAt,
@@ -191,16 +206,92 @@ export default function Profile() {
           id: doc.id,
         };
       });
-      setTweets(tweets);
+
+      const uniqueTweets = isInitialLoad
+        ? newTweets
+        : newTweets.filter((newTweet) => !tweets.some((t) => t.id === newTweet.id));
+
+      if (isInitialLoad) {
+        setTweets(uniqueTweets);
+      } else if (uniqueTweets.length > 0) {
+        setTweets((prev) => {
+          const combined = [...prev, ...uniqueTweets];
+          return Array.from(new Map(combined.map((tweet) => [tweet.id, tweet])).values());
+        });
+      }
+
+      if (snapshot.docs.length > 0) {
+        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+      }
+
+      if (snapshot.docs.length < 5 || uniqueTweets.length === 0) {
+        setHasMore(false);
+        console.log("No more tweets to load.");
+      }
     } catch (e) {
       console.error("Error fetching tweets:", e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // 실시간 트윗 리스너 설정
+  useEffect(() => {
+    if (!user) return;
+
+    const tweetQuery = query(
+      collection(db, "tweets"),
+      where("userId", "==", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(5) // 초기 5개만 실시간 감지
+    );
+
+    const unsubscribe = onSnapshot(tweetQuery, (snapshot) => {
+      const updatedTweets = snapshot.docs.map((doc) => {
+        const { tweet, createdAt, userId, username, photo } = doc.data();
+        return {
+          tweet,
+          createdAt,
+          userId,
+          username,
+          photo,
+          id: doc.id,
+        };
+      });
+      setTweets(updatedTweets); // 실시간으로 초기 5개 업데이트
+      setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+      setHasMore(snapshot.docs.length === 5); // 5개면 더 가져올 가능성 있음
+    });
+
+    return () => unsubscribe(); // 컴포넌트 언마운트 시 리스너 정리
+  }, [user]);
+
+  // 무한 스크롤 감지 (추가 로드는 여전히 fetchTweets 사용)
+  useEffect(() => {
+    observer.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
+          fetchTweets();
+        }
+      },
+      { threshold: 1.0 }
+    );
+
+    if (loadMoreRef.current) {
+      observer.current.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (observer.current && loadMoreRef.current) {
+        observer.current.unobserve(loadMoreRef.current);
+      }
+    };
+  }, [hasMore, isLoading, lastDoc]);
+
+  // 초기 프로필 로드
   useEffect(() => {
     fetchProfile();
-    fetchTweets();
-  }, [user]); // user 변경 시 다시 호출
+  }, [user]);
 
   return (
     <Wrapper>
@@ -232,6 +323,12 @@ export default function Profile() {
           <NoTweetsMessage>No tweets found.</NoTweetsMessage>
         )}
       </Tweets>
+      {hasMore && (
+        <div ref={loadMoreRef}>
+          {isLoading && <LoadingMessage>Loading more tweets...</LoadingMessage>}
+        </div>
+      )}
+      <Footer />
     </Wrapper>
   );
 }

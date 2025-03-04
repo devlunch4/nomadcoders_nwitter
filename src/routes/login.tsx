@@ -12,6 +12,7 @@ import {
   Wrapper,
 } from "../components/auth-components";
 import GithubButton from "../components/github-btn";
+import Footer from "../components/footer";
 
 export default function CreateAccount() {
   const navigate = useNavigate();
@@ -94,6 +95,7 @@ export default function CreateAccount() {
         Foggot Your Password? <Link to="/reset-password">Click Here &rarr;</Link>
       </Switcher>
       <GithubButton />
+      <Footer />
     </Wrapper>
   );
 }
