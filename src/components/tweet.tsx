@@ -6,8 +6,7 @@ import {
   // storage
 } from "../firebase";
 import { deleteDoc, doc, updateDoc } from "firebase/firestore";
-// import { deleteObject, ref } from "firebase/storage";
-import { useState } from "react"; // 상태 관리를 위해 추가
+import { useState } from "react";
 
 const Wrapper = styled.div`
   display: grid;
@@ -105,6 +104,24 @@ const RemovePhotoButton = styled.button`
   margin-top: 10px;
 `;
 
+const ChangePhotoButton = styled.label`
+  background-color: teal;
+  color: white;
+  font-weight: 600;
+  border: 0;
+  font-size: 12px;
+  padding: 5px 10px;
+  text-transform: uppercase;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+  display: inline-block;
+`;
+
+const HiddenFileInput = styled.input`
+  display: none;
+`;
+
 const CancelButton = styled.button`
   background-color: gray;
   color: white;
@@ -117,6 +134,54 @@ const CancelButton = styled.button`
   cursor: pointer;
   margin-right: 10px;
 `;
+
+// 이미지 압축 함수
+const compressImage = (file: File, maxSizeMB: number): Promise<File> => {
+  console.log(
+    "**File size will be reduced to 1MB.\nImage quality may decrease."
+  );
+  alert("File size will be reduced to 1MB.\nImage quality may decrease.");
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.src = e.target?.result as string;
+    };
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d")!;
+      let width = img.width;
+      let height = img.height;
+      const maxBytes = maxSizeMB * 1024 * 1024;
+
+      let quality = 0.7;
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      let dataUrl = canvas.toDataURL("image/jpeg", quality);
+      while (dataUrl.length > maxBytes && quality > 0.1) {
+        quality -= 0.1;
+        dataUrl = canvas.toDataURL("image/jpeg", quality);
+      }
+
+      fetch(dataUrl)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const compressedFile = new File([blob], file.name, {
+            type: "image/jpeg",
+          });
+          resolve(compressedFile);
+        })
+        .catch(reject);
+    };
+
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
 
 export default function Tweet({
   createdAt,
@@ -132,18 +197,16 @@ export default function Tweet({
   const user = auth.currentUser;
 
   // 편집 상태 관리
-  const [isEditing, setIsEditing] = useState(false); // 편집 모드 토글
-  const [editedTweet, setEditedTweet] = useState(tweet); // 수정할 텍스트 상태
-  const [editedPhoto, setEditedPhoto] = useState<string | null>(photo || null); // 수정할 사진(Base64) 상태
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedTweet, setEditedTweet] = useState(tweet);
+  const [editedPhoto, setEditedPhoto] = useState<string | null>(photo || null);
 
   const onDelete = async () => {
     const ok = confirm("Are you sure you want to delete this tweet?");
-    if (!ok || user?.uid !== userId) {
-      return;
-    }
+    if (!ok || user?.uid !== userId) return;
     try {
       await deleteDoc(doc(db, "tweets", id));
-      console.log(`Deleted tweet ID: ${id}`);
+      console.log(`**Deleted tweet ID: ${id}`);
       // Firestore 문서 삭제 (photo가 Base64로 포함되어 있으므로 별도 Storage 삭제 불필요)
       /* if (photo) {
         const photoRef = ref(storage, `tweets/${user.uid}/${id}`);
@@ -159,21 +222,39 @@ export default function Tweet({
 
   // 편집 시작 함수
   const onEdit = () => {
-    if (user?.uid !== userId) return; // 권한 확인
-    setIsEditing(true); // 편집 모드로 전환
+    if (user?.uid !== userId) return;
+    setIsEditing(true);
   };
 
-  // 텍스트 수정 핸들러
+  // tweet 텍스트 수정 핸들러
   const onChangeEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setEditedTweet(e.target.value);
   };
 
   // 사진 제거 함수
   const onRemovePhoto = () => {
-    setEditedPhoto(null); // 편집 중 사진 제거
+    setEditedPhoto(null);
   };
 
-  // 편집 저장 함수
+  // 사진 변경 핸들러 추가
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      // 1MB 미만으로 압축
+      const compressedFile = await compressImage(file, 1);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setEditedPhoto(reader.result as string); // Base64로 미리보기 설정
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (e) {
+      console.log(e);
+      alert("An error occurred while compressing the photo.");
+    }
+  };
+
   const onSave = async () => {
     if (
       !user ||
@@ -186,21 +267,20 @@ export default function Tweet({
     }
     try {
       await updateDoc(doc(db, "tweets", id), {
-        tweet: editedTweet, // 수정된 텍스트 저장
-        photo: editedPhoto, // 수정된 사진(Base64 또는 null) 저장
+        tweet: editedTweet, // 변경된 텍스트 저장
+        photo: editedPhoto, // 변경된 사진(Base64) 또는 null 저장
       });
-      setIsEditing(false); // 편집 모드 종료
+      setIsEditing(false); // 편집모드 종료
     } catch (e) {
       console.log(e);
       alert("An error occurred while saving the tweet.");
     }
   };
 
-  // 편집 취소 함수
   const onCancel = () => {
-    setEditedTweet(tweet); // 원래 텍스트로 복원
-    setEditedPhoto(photo || null); // 원래 사진으로 복원
-    setIsEditing(false); // 편집 모드 종료
+    setEditedTweet(tweet);
+    setEditedPhoto(photo || null);
+    setIsEditing(false);
   };
 
   return (
@@ -242,6 +322,15 @@ export default function Tweet({
                 </RemovePhotoButton>
               </>
             ) : null}
+            <ChangePhotoButton htmlFor="photoInput">
+              Change Photo
+            </ChangePhotoButton>
+            <HiddenFileInput
+              id="photoInput"
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoChange}
+            />
           </Column>
         </>
       ) : (
