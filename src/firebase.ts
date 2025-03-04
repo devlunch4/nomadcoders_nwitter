@@ -16,15 +16,15 @@ const firebaseConfig = {
   storageBucket: "nwitter-v2.firebasestorage.app",
   messagingSenderId: "714026600125",
   appId: "1:714026600125:web:b01336fb502ca161db19d4",
-  measurementId: "G-8XRMP88MXS"
+  measurementId: "G-8XRMP88MXS",
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app);
+const analytics = getAnalytics(app);
 
 export const auth = getAuth(app);
 
-export const storage = getStorage(app)
+export const storage = getStorage(app);
 
 export const db = getFirestore(app);

@@ -9,10 +9,14 @@ const Wrapper = styled.div`
   border-radius: 15px;
 `;
 
-const Column = styled.div``;
+const Column = styled.div`
+  &:last-child {
+    place-self: end;
+  }
+`;
 
 const Photo = styled.img`
-  width: 100px;
+  width: auto;
   height: 100px;
   border-radius: 15px;
 `;
@@ -43,11 +47,9 @@ export default function Tweet({ createdAt, username, photo, tweet }: ITweet) {
         <Payload>{tweet}</Payload>
         <Localdate>{localDate}</Localdate>
       </Column>
-      {photo ? (
-        <Column>
-          <Photo src={photo} />
-        </Column>
-      ) : null}
+      <Column style={{ marginLeft: "auto" }}>
+        {photo ? <Photo src={photo} /> : null}
+      </Column>
     </Wrapper>
   );
 }
