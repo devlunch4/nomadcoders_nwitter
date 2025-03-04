@@ -37,7 +37,7 @@ export default function Timeline() {
       const tweetsQuery = query(
         collection(db, "tweets"),
         orderBy("createdAt", "desc"),
-        limit(25)
+        limit(5)
       );
       /* const spanshot = await getDocs(tweetsQuery);
         const tweets = spanshot.docs.map((doc) => {
