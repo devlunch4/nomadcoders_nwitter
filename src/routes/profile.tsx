@@ -19,6 +19,7 @@ const Wrapper = styled.div`
   flex-direction: column;
   gap: 20px;
 `;
+
 const AvatarUpload = styled.label`
   width: 80px;
   overflow: hidden;
@@ -37,9 +38,11 @@ const AvatarUpload = styled.label`
 const AvatarImg = styled.img`
   width: 100%;
 `;
+
 const AvatarInput = styled.input`
   display: none;
 `;
+
 const Name = styled.span`
   font-size: 22px;
 `;
@@ -49,6 +52,12 @@ const Tweets = styled.div`
   width: 100%;
   flex-direction: column;
   gap: 10px;
+`;
+
+const NoTweetsMessage = styled.p`
+  font-size: 16px;
+  color: #666;
+  text-align: center;
 `;
 
 // 이미지 압축 함수 (1MB 미만 보장)
@@ -66,9 +75,8 @@ const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
       const ctx = canvas.getContext("2d")!;
       let width = img.width;
       let height = img.height;
-      const maxBytes = maxSizeMB * 1024 * 1024; // 1MB = 1048576 bytes
+      const maxBytes = maxSizeMB * 1024 * 1024;
 
-      // 해상도 줄이기 (최대 800x800)
       const MAX_DIMENSION = 800;
       if (width > height && width > MAX_DIMENSION) {
         height *= MAX_DIMENSION / width;
@@ -82,20 +90,16 @@ const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
       canvas.height = height;
       ctx.drawImage(img, 0, 0, width, height);
 
-      let quality = 0.9; // 초기 품질 높게 시작
+      let quality = 0.9;
       let dataUrl = canvas.toDataURL("image/jpeg", quality);
-
-      // Base64 데이터 크기를 바이트로 계산 (Base64는 약 4/3배 크기)
       const byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
 
-      // 크기가 1MB를 초과하면 품질과 해상도를 조정
       while (byteLength > maxBytes && quality > 0.1) {
         quality -= 0.1;
         dataUrl = canvas.toDataURL("image/jpeg", quality);
-        const newByteLength =
-          (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
+        const newByteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
         if (newByteLength > maxBytes && width > 200 && height > 200) {
-          width *= 0.9; // 해상도 10% 감소
+          width *= 0.9;
           height *= 0.9;
           canvas.width = width;
           canvas.height = height;
@@ -104,9 +108,7 @@ const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
         }
       }
 
-      // 최종 크기 확인
-      const finalByteLength =
-        (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
+      const finalByteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
       console.log(`Compressed size: ${(finalByteLength / 1024).toFixed(2)} KB`);
       if (finalByteLength > maxBytes) {
         reject(new Error("Failed to compress image below 1MB"));
@@ -143,57 +145,62 @@ export default function Profile() {
 
     try {
       const file = files[0];
-      // 이미지 1MB 미만으로 압축 후 Base64로 변환
       const compressedBase64 = await compressImage(file, 1);
       setAvatar(compressedBase64);
 
-      // Firestore "profiles" 컬렉션에 저장
       const profileRef = doc(db, "profiles", user.uid);
       await setDoc(
         profileRef,
         {
           avatar: compressedBase64,
           updatedAt: Date.now(),
-          userId: user.uid
+          userId: user.uid,
         },
         { merge: true }
       );
     } catch (e) {
       console.error("Avatar update error:", e);
-      alert(
-        "An error occurred while updating the avatar. Please try a smaller image."
-      );
+      alert("An error occurred while updating the avatar. Please try a smaller image.");
     }
   };
 
   // 트윗 가져오기
   const fetchTweets = async () => {
-    if (!user) return;
-    const tweetQuery = query(
-      collection(db, "tweets"),
-      where("userId", "==", user?.uid),
-      orderBy("createdAt", "desc"),
-      limit(25)
-    );
-    const snapshot = await getDocs(tweetQuery);
-    const tweets = snapshot.docs.map((doc) => {
-      const { tweet, createdAt, userId, username, photo } = doc.data();
-      return {
-        tweet,
-        createdAt,
-        userId,
-        username,
-        photo,
-        id: doc.id,
-      };
-    });
-    setTweets(tweets);
+    if (!user) {
+      console.log("No user logged in");
+      return;
+    }
+    try {
+      const tweetQuery = query(
+        collection(db, "tweets"),
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc"),
+        limit(5)
+      );
+      const snapshot = await getDocs(tweetQuery);
+      console.log("Fetched tweet docs:", snapshot.docs.length); // 디버깅 로그
+      const tweets = snapshot.docs.map((doc) => {
+        const { tweet, createdAt, userId, username, photo } = doc.data();
+        // console.log("Tweet data:", { tweet, createdAt, userId, username, photo }); // 각 트윗 데이터 확인
+        return {
+          tweet,
+          createdAt,
+          userId,
+          username,
+          photo,
+          id: doc.id,
+        };
+      });
+      setTweets(tweets);
+    } catch (e) {
+      console.error("Error fetching tweets:", e);
+    }
   };
 
   useEffect(() => {
     fetchProfile();
     fetchTweets();
-  }, []);
+  }, [user]); // user 변경 시 다시 호출
 
   return (
     <Wrapper>
@@ -219,9 +226,11 @@ export default function Profile() {
       />
       <Name>{user?.displayName ?? "Anonymous"}</Name>
       <Tweets>
-        {tweets.map((tweet) => (
-          <Tweet key={tweet.id} {...tweet} />
-        ))}
+        {tweets.length > 0 ? (
+          tweets.map((tweet) => <Tweet key={tweet.id} {...tweet} />)
+        ) : (
+          <NoTweetsMessage>No tweets found.</NoTweetsMessage>
+        )}
       </Tweets>
     </Wrapper>
   );
