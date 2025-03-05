@@ -100,6 +100,16 @@ const CancelBtn = styled.button`
   }
 `;
 
+const EditBtn = styled.button`
+  padding: 8px 16px;
+  background-color: #f0f0f0;
+  color: #333;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+`;
+
 const Message = styled.p`
   font-size: 16px;
   color: #666;
@@ -173,8 +183,9 @@ export default function Profile() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [nickname, setNickname] = useState<string>(""); // 닉네임 상태 추가
-  const [editNickname, setEditNickname] = useState<string>(""); // 닉네임 편집용
+  const [nickname, setNickname] = useState<string>("");
+  const [editNickname, setEditNickname] = useState<string>("");
+  const [isEditingNickname, setIsEditingNickname] = useState(false); // 닉네임 편집 모드 상태 추가
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -251,12 +262,20 @@ export default function Profile() {
       );
       setNickname(editNickname);
       setEditNickname("");
+      setIsEditingNickname(false); // 저장 후 편집 모드 종료
     } catch (e) {
       console.error("Nickname save error:", e);
       alert("Failed to save nickname. Please try again.");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // 닉네임 편집 모드 토글
+  // Toggle nickname editing mode
+  const toggleEditNickname = () => {
+    setIsEditingNickname((prev) => !prev);
+    if (!isEditingNickname) setEditNickname(nickname); // 편집 시작 시 현재 닉네임으로 초기화
   };
 
   // 트윗 가져오기
@@ -378,14 +397,23 @@ export default function Profile() {
         </>
       )}
       <Name>{nickname}</Name>
-      <NicknameInput
-        value={editNickname}
-        onChange={(e) => setEditNickname(e.target.value)}
-        placeholder="Enter new nickname"
-      />
-      <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
-        {isSaving ? "Saving..." : "Save Nickname"}
-      </SaveBtn>
+      {/* 닉네임 편집 버튼 추가 / Add nickname edit button */}
+      <EditBtn onClick={toggleEditNickname}>
+        {isEditingNickname ? "Cancel" : "Change NikcName"} 
+        {/* Toggle between "Cancel" and "Change Nickname" */}
+      </EditBtn>
+      {isEditingNickname && (
+        <>
+          <NicknameInput
+            value={editNickname}
+            onChange={(e) => setEditNickname(e.target.value)}
+            placeholder="Please enter a new nickname"
+          />
+          <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
+            {isSaving ? "Saving..." : "Save NickName"}
+          </SaveBtn>
+        </>
+      )}
       <Tweets>
         {tweets.length > 0 ? (
           tweets.map((tweet) => <Tweet key={tweet.id} {...tweet} />)
