@@ -12,6 +12,7 @@ import {
   Wrapper,
 } from "../components/auth-components";
 import GithubButton from "../components/github-btn";
+import GoogleLoginButton from "../components/google-login-btn";
 import Footer from "../components/footer";
 
 export default function CreateAccount() {
@@ -92,9 +93,11 @@ export default function CreateAccount() {
         <Link to="/create-account">Create One &rarr;</Link>
       </Switcher>
       <Switcher>
-        Foggot Your Password? <Link to="/reset-password">Click Here &rarr;</Link>
+        Foggot Your Password?{" "}
+        <Link to="/reset-password">Click Here &rarr;</Link>
       </Switcher>
       <GithubButton />
+      <GoogleLoginButton />
       <Footer />
     </Wrapper>
   );
