@@ -1,7 +1,14 @@
 import { styled } from "styled-components";
 import { auth, db } from "../firebase";
 import { useEffect, useState, useRef } from "react";
-import { doc, setDoc, getDoc, QueryDocumentSnapshot, onSnapshot, getDocs } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  getDocs,
+  QueryDocumentSnapshot,
+} from "firebase/firestore";
 import {
   collection,
   limit,
@@ -14,6 +21,7 @@ import { ITweet } from "../components/timeline";
 import Tweet from "../components/tweet";
 import Footer from "../components/footer";
 
+// 스타일 컴포넌트 정의
 const Wrapper = styled.div`
   display: flex;
   align-items: center;
@@ -24,7 +32,6 @@ const Wrapper = styled.div`
 
 const AvatarUpload = styled.label`
   width: 80px;
-  overflow: hidden;
   height: 80px;
   border-radius: 50%;
   background-color: #1d9bf0;
@@ -32,6 +39,7 @@ const AvatarUpload = styled.label`
   display: flex;
   justify-content: center;
   align-items: center;
+  overflow: hidden;
   svg {
     width: 50px;
   }
@@ -56,36 +64,59 @@ const Tweets = styled.div`
   gap: 10px;
 `;
 
-const NoTweetsMessage = styled.p`
-  font-size: 16px;
-  color: #666;
-  text-align: center;
+const SaveBtn = styled.button`
+  padding: 8px 16px;
+  background-color: #1d9bf0;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+  &:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
 `;
 
-const LoadingMessage = styled.p`
+const CancelBtn = styled.button`
+  padding: 8px 16px;
+  background-color: #666; // 고정된 색상으로 단순화
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 5px;
+  &:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+`;
+
+const Message = styled.p`
   font-size: 16px;
   color: #666;
   text-align: center;
 `;
 
 // 이미지 압축 함수 (1MB 미만 보장)
-const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
+// Image compression function (ensures less than 1MB)
+const compressProfileImage = (
+  file: File,
+  maxSizeMB: number
+): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
 
-    reader.onload = (e) => {
-      img.src = e.target?.result as string;
-    };
-
+    reader.onload = (e) => (img.src = e.target?.result as string);
     img.onload = () => {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d")!;
       let width = img.width;
       let height = img.height;
       const maxBytes = maxSizeMB * 1024 * 1024;
-
       const MAX_DIMENSION = 800;
+
       if (width > height && width > MAX_DIMENSION) {
         height *= MAX_DIMENSION / width;
         width = MAX_DIMENSION;
@@ -100,13 +131,13 @@ const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
 
       let quality = 0.9;
       let dataUrl = canvas.toDataURL("image/jpeg", quality);
-      const byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
+      let byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
 
       while (byteLength > maxBytes && quality > 0.1) {
         quality -= 0.1;
         dataUrl = canvas.toDataURL("image/jpeg", quality);
-        const newByteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
-        if (newByteLength > maxBytes && width > 200 && height > 200) {
+        byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
+        if (byteLength > maxBytes && width > 200 && height > 200) {
           width *= 0.9;
           height *= 0.9;
           canvas.width = width;
@@ -116,15 +147,11 @@ const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
         }
       }
 
-      const finalByteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
-      console.log(`Compressed size: ${(finalByteLength / 1024).toFixed(2)} KB`);
-      if (finalByteLength > maxBytes) {
-        reject(new Error("Failed to compress image below 1MB"));
-      } else {
-        resolve(dataUrl);
-      }
+      console.log(`Compressed size: ${(byteLength / 1024).toFixed(2)} KB`);
+      byteLength > maxBytes
+        ? reject(new Error("Failed to compress image below 1MB"))
+        : resolve(dataUrl);
     };
-
     img.onerror = reject;
     reader.readAsDataURL(file);
   });
@@ -133,54 +160,66 @@ const compressImage = (file: File, maxSizeMB: number): Promise<string> => {
 export default function Profile() {
   const user = auth.currentUser;
   const [avatar, setAvatar] = useState<string | null>(user?.photoURL || null);
+  const [previewAvatar, setPreviewAvatar] = useState<string | null>(null);
   const [tweets, setTweets] = useState<ITweet[]>([]);
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // 프로필 데이터 가져오기
+  // Fetch profile data
   const fetchProfile = async () => {
     if (!user) return;
     const profileRef = doc(db, "profiles", user.uid);
     const profileSnap = await getDoc(profileRef);
-    if (profileSnap.exists()) {
-      const { avatar } = profileSnap.data();
-      setAvatar(avatar || null);
+    if (profileSnap.exists()) setAvatar(profileSnap.data().avatar || null);
+  };
+
+  // 아바타 미리보기 업데이트
+  // Update avatar preview
+  const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user || !e.target.files || e.target.files.length !== 1) return;
+    try {
+      const compressedBase64 = await compressProfileImage(e.target.files[0], 1);
+      setPreviewAvatar(compressedBase64);
+    } catch (e) {
+      console.error("Avatar compression error:", e);
     }
   };
 
-  // 아바타 변경 핸들러
-  const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { files } = e.target;
-    if (!user || !files || files.length !== 1) return;
-
+  // 아바타 저장
+  // Save avatar
+  const saveAvatar = async () => {
+    if (!user || !previewAvatar) return;
+    setIsSaving(true);
     try {
-      const file = files[0];
-      const compressedBase64 = await compressImage(file, 1);
-      setAvatar(compressedBase64);
-
       const profileRef = doc(db, "profiles", user.uid);
       await setDoc(
         profileRef,
-        {
-          avatar: compressedBase64,
-          updatedAt: Date.now(),
-          userId: user.uid,
-        },
+        { avatar: previewAvatar, updatedAt: Date.now(), userId: user.uid },
         { merge: true }
       );
+      setAvatar(previewAvatar);
+      setPreviewAvatar(null);
     } catch (e) {
-      console.error("Avatar update error:", e);
-      alert("An error occurred while updating the avatar. Please try a smaller image.");
+      console.error("Avatar save error:", e);
+      alert("Failed to save avatar. Please try again.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // 트윗 가져오기 (초기 및 추가 로드)
+  // 아바타 변경 취소
+  // Cancel avatar change
+  const cancelAvatarChange = () => setPreviewAvatar(null);
+
+  // 트윗 가져오기
+  // Fetch tweets
   const fetchTweets = async (isInitialLoad = false) => {
     if (!user || !hasMore || isLoading) return;
-
     setIsLoading(true);
     try {
       const tweetQuery = query(
@@ -190,44 +229,27 @@ export default function Profile() {
         limit(5),
         ...(lastDoc && !isInitialLoad ? [startAfter(lastDoc)] : [])
       );
-
       const snapshot = await getDocs(tweetQuery);
-      console.log("Fetched tweet docs:", snapshot.docs.length);
-      console.log("Last doc ID:", lastDoc?.id);
+      const newTweets = snapshot.docs.map((doc) => ({
+        tweet: doc.data().tweet,
+        createdAt: doc.data().createdAt,
+        userId: doc.data().userId,
+        username: doc.data().username,
+        photo: doc.data().photo,
+        id: doc.id,
+      }));
 
-      const newTweets = snapshot.docs.map((doc) => {
-        const { tweet, createdAt, userId, username, photo } = doc.data();
-        return {
-          tweet,
-          createdAt,
-          userId,
-          username,
-          photo,
-          id: doc.id,
-        };
-      });
-
-      const uniqueTweets = isInitialLoad
-        ? newTweets
-        : newTweets.filter((newTweet) => !tweets.some((t) => t.id === newTweet.id));
-
-      if (isInitialLoad) {
-        setTweets(uniqueTweets);
-      } else if (uniqueTweets.length > 0) {
-        setTweets((prev) => {
-          const combined = [...prev, ...uniqueTweets];
-          return Array.from(new Map(combined.map((tweet) => [tweet.id, tweet])).values());
-        });
-      }
-
-      if (snapshot.docs.length > 0) {
+      setTweets((prev) =>
+        isInitialLoad
+          ? newTweets
+          : [
+              ...prev,
+              ...newTweets.filter((t) => !prev.some((p) => p.id === t.id)),
+            ]
+      );
+      if (snapshot.docs.length > 0)
         setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      }
-
-      if (snapshot.docs.length < 5 || uniqueTweets.length === 0) {
-        setHasMore(false);
-        console.log("No more tweets to load.");
-      }
+      if (snapshot.docs.length < 5) setHasMore(false);
     } catch (e) {
       console.error("Error fetching tweets:", e);
     } finally {
@@ -235,68 +257,55 @@ export default function Profile() {
     }
   };
 
-  // 실시간 트윗 리스너 설정
+  // 실시간 트윗 업데이트 및 초기 로드
+  // Real-time tweet updates and initial load
   useEffect(() => {
     if (!user) return;
-
     const tweetQuery = query(
       collection(db, "tweets"),
       where("userId", "==", user.uid),
       orderBy("createdAt", "desc"),
-      limit(5) // 초기 5개만 실시간 감지
+      limit(5)
     );
-
     const unsubscribe = onSnapshot(tweetQuery, (snapshot) => {
-      const updatedTweets = snapshot.docs.map((doc) => {
-        const { tweet, createdAt, userId, username, photo } = doc.data();
-        return {
-          tweet,
-          createdAt,
-          userId,
-          username,
-          photo,
-          id: doc.id,
-        };
-      });
-      setTweets(updatedTweets); // 실시간으로 초기 5개 업데이트
+      const updatedTweets = snapshot.docs.map((doc) => ({
+        tweet: doc.data().tweet,
+        createdAt: doc.data().createdAt,
+        userId: doc.data().userId,
+        username: doc.data().username,
+        photo: doc.data().photo,
+        id: doc.id,
+      }));
+      setTweets(updatedTweets);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-      setHasMore(snapshot.docs.length === 5); // 5개면 더 가져올 가능성 있음
+      setHasMore(snapshot.docs.length === 5);
     });
-
-    return () => unsubscribe(); // 컴포넌트 언마운트 시 리스너 정리
+    fetchProfile();
+    return () => unsubscribe();
   }, [user]);
 
-  // 무한 스크롤 감지 (추가 로드는 여전히 fetchTweets 사용)
+  // 무한 스크롤 설정
+  // Infinite scroll setup
   useEffect(() => {
     observer.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          fetchTweets();
-        }
+        if (entries[0].isIntersecting && hasMore && !isLoading) fetchTweets();
       },
       { threshold: 1.0 }
     );
-
-    if (loadMoreRef.current) {
-      observer.current.observe(loadMoreRef.current);
-    }
-
+    if (loadMoreRef.current) observer.current.observe(loadMoreRef.current);
     return () => {
-      if (observer.current && loadMoreRef.current) {
+      if (observer.current && loadMoreRef.current)
         observer.current.unobserve(loadMoreRef.current);
-      }
     };
-  }, [hasMore, isLoading, lastDoc]);
-
-  // 초기 프로필 로드
-  useEffect(() => {
-    fetchProfile();
-  }, [user]);
+  }, [hasMore, isLoading]);
 
   return (
     <Wrapper>
       <AvatarUpload htmlFor="avatar">
-        {avatar ? (
+        {previewAvatar ? (
+          <AvatarImg src={previewAvatar} />
+        ) : avatar ? (
           <AvatarImg src={avatar} />
         ) : (
           <svg
@@ -315,17 +324,27 @@ export default function Profile() {
         type="file"
         accept="image/*"
       />
+      {previewAvatar && (
+        <>
+          <SaveBtn onClick={saveAvatar} disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save Avatar"}
+          </SaveBtn>
+          <CancelBtn onClick={cancelAvatarChange} disabled={isSaving}>
+            Cancel
+          </CancelBtn>
+        </>
+      )}
       <Name>{user?.displayName ?? "Anonymous"}</Name>
       <Tweets>
         {tweets.length > 0 ? (
           tweets.map((tweet) => <Tweet key={tweet.id} {...tweet} />)
         ) : (
-          <NoTweetsMessage>No tweets found.</NoTweetsMessage>
+          <Message>No tweets found.</Message>
         )}
       </Tweets>
       {hasMore && (
         <div ref={loadMoreRef}>
-          {isLoading && <LoadingMessage>Loading more tweets...</LoadingMessage>}
+          {isLoading && <Message>Loading more tweets...</Message>}
         </div>
       )}
       <Footer />
