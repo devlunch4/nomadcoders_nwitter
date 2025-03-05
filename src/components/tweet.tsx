@@ -1,13 +1,12 @@
 import { styled } from "styled-components";
 import { ITweet } from "./timeline";
-import { auth, db } from "../firebase";
-import { deleteDoc, doc, updateDoc, getDoc } from "firebase/firestore"; // getDoc 추가
-import { useState, useEffect } from "react";
-
-// profiles 문서의 타입 정의
-interface IProfile {
-  nickname?: string;
-}
+import {
+  auth,
+  db,
+  // storage
+} from "../firebase";
+import { deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { useState } from "react";
 
 const Wrapper = styled.div`
   display: grid;
@@ -33,13 +32,6 @@ const Photo = styled.img`
 const Username = styled.span`
   font-weight: 600;
   font-size: 15px;
-`;
-
-const Nickname = styled.span`
-  font-weight: 400;
-  font-size: 14px;
-  color: #888;
-  margin-left: 5px;
 `;
 
 const Payload = styled.p`
@@ -143,83 +135,72 @@ const CancelButton = styled.button`
   margin-right: 10px;
 `;
 
-const compressImage = (file: File, maxSizeMB: number): Promise<File> => {
-  alert("File size will be reduced to 1MB.\nImage quality may decrease.");
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
+  // 이미지 압축 함수 추가
+  // 이유: 파일 크기가 클 경우 자동으로 압축하여 1MB 미만으로 맞춤
+  const compressImage = (file: File, maxSizeMB: number): Promise<File> => {
+    alert("File size will be reduced to 1MB.\nImage quality may decrease.");
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
 
-    reader.onload = (e) => {
-      img.src = e.target?.result as string;
-    };
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
 
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d")!;
-      let width = img.width;
-      let height = img.height;
-      const maxBytes = maxSizeMB * 1024 * 1024;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d")!;
+        let width = img.width;
+        let height = img.height;
+        const maxBytes = maxSizeMB * 1024 * 1024; // 최대 크기를 바이트로 변환
 
-      let quality = 0.7;
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(img, 0, 0, width, height);
+        // 초기 품질 설정
+        let quality = 0.7;
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
 
-      let dataUrl = canvas.toDataURL("image/jpeg", quality);
-      while (dataUrl.length > maxBytes && quality > 0.1) {
-        quality -= 0.1;
-        dataUrl = canvas.toDataURL("image/jpeg", quality);
-      }
+        // 캔버스를 JPEG로 변환하며 크기 조정
+        let dataUrl = canvas.toDataURL("image/jpeg", quality);
+        while (dataUrl.length > maxBytes && quality > 0.1) {
+          quality -= 0.1; // 품질을 낮춰가며 크기 조정
+          dataUrl = canvas.toDataURL("image/jpeg", quality);
+        }
 
-      fetch(dataUrl)
-        .then((res) => res.blob())
-        .then((blob) => {
-          const compressedFile = new File([blob], file.name, {
-            type: "image/jpeg",
-          });
-          resolve(compressedFile);
-        })
-        .catch(reject);
-    };
+        // Base64를 Blob으로 변환
+        fetch(dataUrl)
+          .then((res) => res.blob())
+          .then((blob) => {
+            const compressedFile = new File([blob], file.name, {
+              type: "image/jpeg",
+            });
+            resolve(compressedFile);
+          })
+          .catch(reject);
+      };
 
-    img.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
+      img.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
 export default function Tweet({
   createdAt,
   username,
-  nickname: propNickname, // Timeline에서 전달된 nickname (필요 시 사용)
   photo,
   tweet,
   userId,
   id,
 }: ITweet) {
+  // date set
   const dateValue = new Date(createdAt);
   const localDate = dateValue.toLocaleString();
   const user = auth.currentUser;
 
+  // 편집 상태 관리
   const [isEditing, setIsEditing] = useState(false);
   const [editedTweet, setEditedTweet] = useState(tweet);
   const [editedPhoto, setEditedPhoto] = useState<string | null>(photo || null);
-  const [currentUserNickname, setCurrentUserNickname] = useState<string>(""); // 로그인한 사용자의 nickname 상태
-
-  // 로그인한 사용자의 nickname 가져오기
-  useEffect(() => {
-    const fetchCurrentUserNickname = async () => {
-      if (user) {
-        const profileRef = doc(db, "profiles", user.uid);
-        const profileSnap = await getDoc(profileRef);
-        const profileData = profileSnap.exists()
-          ? (profileSnap.data() as IProfile)
-          : null;
-        const fetchedNickname = profileData?.nickname || user.displayName || "No nickname";
-        setCurrentUserNickname(fetchedNickname);
-      }
-    };
-    fetchCurrentUserNickname();
-  }, [user]);
 
   const onDelete = async () => {
     const ok = confirm("Are you sure you want to delete this tweet?");
@@ -227,34 +208,46 @@ export default function Tweet({
     try {
       await deleteDoc(doc(db, "tweets", id));
       console.log(`**Deleted tweet ID: ${id}`);
+      // Firestore 문서 삭제 (photo가 Base64로 포함되어 있으므로 별도 Storage 삭제 불필요)
+      /* if (photo) {
+        const photoRef = ref(storage, `tweets/${user.uid}/${id}`);
+        await deleteObject(photoRef);
+      }
+      */
     } catch (e) {
       console.log(e);
+      // 에러 발생 시 사용자 알림 추가
       alert("An error occurred while deleting the tweet.");
     }
   };
 
+  // 편집 시작 함수
   const onEdit = () => {
     if (user?.uid !== userId) return;
     setIsEditing(true);
   };
 
+  // tweet 텍스트 수정 핸들러
   const onChangeEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setEditedTweet(e.target.value);
   };
 
+  // 사진 제거 함수
   const onRemovePhoto = () => {
     setEditedPhoto(null);
   };
 
+  // 사진 변경 핸들러 추가
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
+      // 1MB 미만으로 압축
       const compressedFile = await compressImage(file, 1);
       const reader = new FileReader();
       reader.onload = () => {
-        setEditedPhoto(reader.result as string);
+        setEditedPhoto(reader.result as string); // Base64로 미리보기 설정
       };
       reader.readAsDataURL(compressedFile);
     } catch (e) {
@@ -275,10 +268,10 @@ export default function Tweet({
     }
     try {
       await updateDoc(doc(db, "tweets", id), {
-        tweet: editedTweet,
-        photo: editedPhoto,
+        tweet: editedTweet, // 변경된 텍스트 저장
+        photo: editedPhoto, // 변경된 사진(Base64) 또는 null 저장
       });
-      setIsEditing(false);
+      setIsEditing(false); // 편집모드 종료
     } catch (e) {
       console.log(e);
       alert("An error occurred while saving the tweet.");
@@ -291,17 +284,14 @@ export default function Tweet({
     setIsEditing(false);
   };
 
-  // 표시할 nickname 결정: 로그인한 사용자가 트윗 작성자라면 currentUserNickname 사용
-  const displayNickname =
-    user?.uid === userId ? currentUserNickname : propNickname || "No nickname";
-
   return (
     <Wrapper>
       {isEditing ? (
         <>
+          {/* 편집 모드인 경우: 텍스트-사진 컬럼 구분 */}
+          {/* 왼쪽 컬럼: 트윗 텍스트 수정 */}
           <Column>
             <Username>{username}</Username>
-            <Nickname>({displayNickname})</Nickname>
             <EditInput
               value={editedTweet}
               onChange={onChangeEdit}
@@ -316,6 +306,7 @@ export default function Tweet({
               </>
             )}
           </Column>
+          {/* 오른쪽 컬럼: 사진 관리 */}
           <Column
             style={{
               marginLeft: "auto",
@@ -345,9 +336,9 @@ export default function Tweet({
         </>
       ) : (
         <>
+          {/* 편집 모드가 아닐 때: 기존 레이아웃 유지 */}
           <Column>
             <Username>{username}</Username>
-            <Nickname>({displayNickname})</Nickname>
             <Payload>{tweet}</Payload>
             <Localdate>{localDate}</Localdate>
             {user?.uid === userId && (

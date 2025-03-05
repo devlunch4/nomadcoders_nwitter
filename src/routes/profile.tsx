@@ -11,21 +11,21 @@ import {
 } from "firebase/firestore";
 import {
   collection,
+  limit,
+  orderBy,
   query,
   where,
-  orderBy,
-  limit,
   startAfter,
 } from "firebase/firestore";
 import { ITweet } from "../components/timeline";
 import Tweet from "../components/tweet";
 import Footer from "../components/footer";
 
-// Styled components
+// 스타일 컴포넌트 정의
 const Wrapper = styled.div`
   display: flex;
-  flex-direction: column;
   align-items: center;
+  flex-direction: column;
   gap: 20px;
   padding-bottom: 50px;
 `;
@@ -67,8 +67,8 @@ const NicknameInput = styled.input`
 
 const Tweets = styled.div`
   display: flex;
-  flex-direction: column;
   width: 100%;
+  flex-direction: column;
   gap: 10px;
 `;
 
@@ -100,40 +100,36 @@ const CancelBtn = styled.button`
   }
 `;
 
-const EditBtn = styled.button`
-  padding: 8px 16px;
-  background-color: #f0f0f0;
-  color: #333;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-top: 10px;
-`;
-
 const Message = styled.p`
   font-size: 16px;
   color: #666;
   text-align: center;
 `;
 
-// Compress image to ensure size is under 1MB
-const compressImage = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
+// 이미지 압축 함수 (기존 유지)
+const compressProfileImage = (
+  file: File,
+  maxSizeMB: number
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
+
     reader.onload = (e) => (img.src = e.target?.result as string);
     img.onload = () => {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d")!;
       let width = img.width;
       let height = img.height;
-      const maxDimension = 800;
-      const maxSizeBytes = 1024 * 1024; // 1MB in bytes
+      const maxBytes = maxSizeMB * 1024 * 1024;
+      const MAX_DIMENSION = 800;
 
-      if (width > maxDimension || height > maxDimension) {
-        const scale = Math.min(maxDimension / width, maxDimension / height);
-        width *= scale;
-        height *= scale;
+      if (width > height && width > MAX_DIMENSION) {
+        height *= MAX_DIMENSION / width;
+        width = MAX_DIMENSION;
+      } else if (height > MAX_DIMENSION) {
+        width *= MAX_DIMENSION / height;
+        height = MAX_DIMENSION;
       }
 
       canvas.width = width;
@@ -142,21 +138,31 @@ const compressImage = (file: File): Promise<string> =>
 
       let quality = 0.9;
       let dataUrl = canvas.toDataURL("image/jpeg", quality);
-      let size = dataUrl.length * 0.75 - dataUrl.indexOf(",") - 1;
+      let byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
 
-      while (size > maxSizeBytes && quality > 0.1) {
+      while (byteLength > maxBytes && quality > 0.1) {
         quality -= 0.1;
         dataUrl = canvas.toDataURL("image/jpeg", quality);
-        size = dataUrl.length * 0.75 - dataUrl.indexOf(",") - 1;
+        byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
+        if (byteLength > maxBytes && width > 200 && height > 200) {
+          width *= 0.9;
+          height *= 0.9;
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
+          dataUrl = canvas.toDataURL("image/jpeg", quality);
+        }
       }
 
-      size > maxSizeBytes
+      console.log(`Compressed size: ${(byteLength / 1024).toFixed(2)} KB`);
+      byteLength > maxBytes
         ? reject(new Error("Failed to compress image below 1MB"))
         : resolve(dataUrl);
     };
     img.onerror = reject;
     reader.readAsDataURL(file);
   });
+};
 
 export default function Profile() {
   const user = auth.currentUser;
@@ -164,99 +170,98 @@ export default function Profile() {
   const [previewAvatar, setPreviewAvatar] = useState<string | null>(null);
   const [tweets, setTweets] = useState<ITweet[]>([]);
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [hasMore, setHasMore] = useState<boolean>(true);
-  const [nickname, setNickname] = useState<string>("");
-  const [editNickname, setEditNickname] = useState<string>("");
-  const [isEditingNickname, setIsEditingNickname] = useState<boolean>(false);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [nickname, setNickname] = useState<string>(""); // 닉네임 상태 추가
+  const [editNickname, setEditNickname] = useState<string>(""); // 닉네임 편집용
+  const observer = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
+  // 프로필 데이터 가져오기
   // Fetch profile data
   const fetchProfile = async () => {
     if (!user) return;
     const profileRef = doc(db, "profiles", user.uid);
     const profileSnap = await getDoc(profileRef);
-    const data = profileSnap.data() || {};
-    const newNickname = data.nickname || user.displayName || "Anonymous";
-    setAvatar(data.avatar || null);
-    setNickname(newNickname);
-
-    if (!profileSnap.exists()) {
+    if (profileSnap.exists()) {
+      const data = profileSnap.data();
+      setAvatar(data.avatar || null);
+      setNickname(data.nickname || user.displayName || "Anonymous");
+    } else {
+      // 프로필이 없으면 초기값 설정
+      setNickname(user.displayName || "Anonymous");
       await setDoc(profileRef, {
-        nickname: newNickname,
+        nickname: user.displayName || "Anonymous",
         userId: user.uid,
         createdAt: Date.now(),
-      });
+      }, { merge: true });
     }
   };
 
-  // Handle avatar change
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!user || !file) return;
+  // 아바타 미리보기 업데이트
+  // Update avatar preview
+  const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user || !e.target.files || e.target.files.length !== 1) return;
     try {
-      setPreviewAvatar(await compressImage(file));
-    } catch (error) {
-      console.error("Error compressing avatar:", error);
+      const compressedBase64 = await compressProfileImage(e.target.files[0], 1);
+      setPreviewAvatar(compressedBase64);
+    } catch (e) {
+      console.error("Avatar compression error:", e);
     }
   };
 
+  // 아바타 저장
   // Save avatar
   const saveAvatar = async () => {
     if (!user || !previewAvatar) return;
     setIsSaving(true);
     try {
+      const profileRef = doc(db, "profiles", user.uid);
       await setDoc(
-        doc(db, "profiles", user.uid),
+        profileRef,
         { avatar: previewAvatar, updatedAt: Date.now() },
         { merge: true }
       );
       setAvatar(previewAvatar);
       setPreviewAvatar(null);
-    } catch (error) {
-      console.error("Error saving avatar:", error);
-      alert("Failed to save avatar.");
+    } catch (e) {
+      console.error("Avatar save error:", e);
+      alert("Failed to save avatar. Please try again.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Save nickname with history
+  // 아바타 변경 취소
+  // Cancel avatar change
+  const cancelAvatarChange = () => setPreviewAvatar(null);
+
+  // 닉네임 저장
+  // NickName savck
   const saveNickname = async () => {
     if (!user || !editNickname || editNickname === nickname) return;
     setIsSaving(true);
     try {
       const profileRef = doc(db, "profiles", user.uid);
-      const profileSnap = await getDoc(profileRef);
-      const data = profileSnap.data() || {};
-      const beforeNicknames = data.beforeNicknames || [];
-      if (nickname) beforeNicknames.push({ nickname, changedAt: Date.now() });
-
       await setDoc(
         profileRef,
-        { nickname: editNickname, beforeNicknames, updatedAt: Date.now() },
+        { nickname: editNickname, updatedAt: Date.now() },
         { merge: true }
       );
       setNickname(editNickname);
       setEditNickname("");
-      setIsEditingNickname(false);
-    } catch (error) {
-      console.error("Error saving nickname:", error);
-      alert("Failed to save nickname.");
+    } catch (e) {
+      console.error("Nickname save error:", e);
+      alert("Failed to save nickname. Please try again.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Toggle nickname editing
-  const toggleEditNickname = () => {
-    setIsEditingNickname(!isEditingNickname);
-    if (!isEditingNickname) setEditNickname(nickname);
-  };
-
-  // Fetch tweets for infinite scroll
-  const fetchTweets = async (initial = false) => {
+  // 트윗 가져오기
+  // Fetch tweets
+  const fetchTweets = async (isInitialLoad = false) => {
     if (!user || !hasMore || isLoading) return;
     setIsLoading(true);
     try {
@@ -265,34 +270,41 @@ export default function Profile() {
         where("userId", "==", user.uid),
         orderBy("createdAt", "desc"),
         limit(5),
-        ...(lastDoc && !initial ? [startAfter(lastDoc)] : [])
+        ...(lastDoc && !isInitialLoad ? [startAfter(lastDoc)] : [])
       );
       const snapshot = await getDocs(tweetQuery);
-      const newTweets = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ITweet));
+      const newTweets = snapshot.docs.map((doc) => ({
+        tweet: doc.data().tweet,
+        createdAt: doc.data().createdAt,
+        userId: doc.data().userId,
+        username: doc.data().username,
+        photo: doc.data().photo,
+        id: doc.id,
+      }));
+
       setTweets((prev) =>
-        initial
+        isInitialLoad
           ? newTweets
-          : [...prev, ...newTweets.filter((t) => !prev.some((p) => p.id === t.id))]
+          : [
+              ...prev,
+              ...newTweets.filter((t) => !prev.some((p) => p.id === t.id)),
+            ]
       );
-      setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-      setHasMore(snapshot.docs.length === 5);
-    } catch (error) {
-      console.error("Error fetching tweets:", error);
+      if (snapshot.docs.length > 0)
+        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+      if (snapshot.docs.length < 5) setHasMore(false);
+    } catch (e) {
+      console.error("Error fetching tweets:", e);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Initial tweet load and real-time updates
+  // 실시간 트윗 업데이트 및 초기 로드
+  // Real-time tweet updates and initial load
   useEffect(() => {
     if (!user) return;
-
     fetchProfile();
-
-    // Initial fetch for the first set of tweets
-    fetchTweets(true);
-
-    // Real-time updates for new tweets
     const tweetQuery = query(
       collection(db, "tweets"),
       where("userId", "==", user.uid),
@@ -300,84 +312,82 @@ export default function Profile() {
       limit(5)
     );
     const unsubscribe = onSnapshot(tweetQuery, (snapshot) => {
-      const updatedTweets = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ITweet));
-      setTweets((prev) => {
-        // Merge new tweets with existing ones, avoiding duplicates
-        const merged = [...updatedTweets, ...prev.filter((t) => !updatedTweets.some((u) => u.id === t.id))];
-        return merged.sort((a, b) => b.createdAt - a.createdAt); // Sort by createdAt descending
-      });
-      setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      const updatedTweets = snapshot.docs.map((doc) => ({
+        tweet: doc.data().tweet,
+        createdAt: doc.data().createdAt,
+        userId: doc.data().userId,
+        username: doc.data().username,
+        photo: doc.data().photo,
+        id: doc.id,
+      }));
+      setTweets(updatedTweets);
+      setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
       setHasMore(snapshot.docs.length === 5);
     });
-
     return () => unsubscribe();
   }, [user]);
 
+  // 무한 스크롤 설정
   // Infinite scroll setup
   useEffect(() => {
-    if (!user) return;
-
-    const observer = new IntersectionObserver(
+    observer.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          fetchTweets(); // Fetch previous tweets on scroll
-        }
+        if (entries[0].isIntersecting && hasMore && !isLoading) fetchTweets();
       },
-      { threshold: 1 }
+      { threshold: 1.0 }
     );
-    const ref = loadMoreRef.current;
-    if (ref) observer.observe(ref);
-
+    if (loadMoreRef.current) observer.current.observe(loadMoreRef.current);
     return () => {
-      if (ref) observer.unobserve(ref);
+      if (observer.current && loadMoreRef.current)
+        observer.current.unobserve(loadMoreRef.current);
     };
-  }, [user, hasMore, isLoading]);
+  }, [hasMore, isLoading]);
 
   return (
     <Wrapper>
       <AvatarUpload htmlFor="avatar">
-        {previewAvatar || avatar ? (
-          <AvatarImg src={previewAvatar || avatar!} />
+        {previewAvatar ? (
+          <AvatarImg src={previewAvatar} />
+        ) : avatar ? (
+          <AvatarImg src={avatar} />
         ) : (
-          <svg fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+          <svg
+            fill="currentColor"
+            viewBox="0 0 20 20"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
             <path d="M10 8a3 3 0 100-6 3 3 0 000 6zM3.465 14.493a1.23 1.23 0 00.41 1.412A9.957 9.957 0 0010 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 00-13.074.003z" />
           </svg>
         )}
       </AvatarUpload>
       <AvatarInput
+        onChange={onAvatarChange}
         id="avatar"
         type="file"
         accept="image/*"
-        onChange={handleAvatarChange}
       />
       {previewAvatar && (
         <>
           <SaveBtn onClick={saveAvatar} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Avatar"}
           </SaveBtn>
-          <CancelBtn onClick={() => setPreviewAvatar(null)} disabled={isSaving}>
+          <CancelBtn onClick={cancelAvatarChange} disabled={isSaving}>
             Cancel
           </CancelBtn>
         </>
       )}
       <Name>{nickname}</Name>
-      <EditBtn onClick={toggleEditNickname}>
-        {isEditingNickname ? "Cancel" : "Change Nickname"}
-      </EditBtn>
-      {isEditingNickname && (
-        <>
-          <NicknameInput
-            value={editNickname}
-            onChange={(e) => setEditNickname(e.target.value)}
-            placeholder="Please enter a new nickname"
-          />
-          <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
-            {isSaving ? "Saving..." : "Save Nickname"}
-          </SaveBtn>
-        </>
-      )}
+      <NicknameInput
+        value={editNickname}
+        onChange={(e) => setEditNickname(e.target.value)}
+        placeholder="Enter new nickname"
+      />
+      <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
+        {isSaving ? "Saving..." : "Save Nickname"}
+      </SaveBtn>
       <Tweets>
-        {tweets.length ? (
+        {tweets.length > 0 ? (
           tweets.map((tweet) => <Tweet key={tweet.id} {...tweet} />)
         ) : (
           <Message>No tweets found.</Message>
