@@ -135,53 +135,54 @@ const CancelButton = styled.button`
   margin-right: 10px;
 `;
 
-// 이미지 압축 함수
-const compressImage = (file: File, maxSizeMB: number): Promise<File> => {
-  console.log(
-    "**File size will be reduced to 1MB.\nImage quality may decrease."
-  );
-  alert("File size will be reduced to 1MB.\nImage quality may decrease.");
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
+  // 이미지 압축 함수 추가
+  // 이유: 파일 크기가 클 경우 자동으로 압축하여 1MB 미만으로 맞춤
+  const compressImage = (file: File, maxSizeMB: number): Promise<File> => {
+    alert("File size will be reduced to 1MB.\nImage quality may decrease.");
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
 
-    reader.onload = (e) => {
-      img.src = e.target?.result as string;
-    };
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
 
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d")!;
-      let width = img.width;
-      let height = img.height;
-      const maxBytes = maxSizeMB * 1024 * 1024;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d")!;
+        let width = img.width;
+        let height = img.height;
+        const maxBytes = maxSizeMB * 1024 * 1024; // 최대 크기를 바이트로 변환
 
-      let quality = 0.7;
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(img, 0, 0, width, height);
+        // 초기 품질 설정
+        let quality = 0.7;
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
 
-      let dataUrl = canvas.toDataURL("image/jpeg", quality);
-      while (dataUrl.length > maxBytes && quality > 0.1) {
-        quality -= 0.1;
-        dataUrl = canvas.toDataURL("image/jpeg", quality);
-      }
+        // 캔버스를 JPEG로 변환하며 크기 조정
+        let dataUrl = canvas.toDataURL("image/jpeg", quality);
+        while (dataUrl.length > maxBytes && quality > 0.1) {
+          quality -= 0.1; // 품질을 낮춰가며 크기 조정
+          dataUrl = canvas.toDataURL("image/jpeg", quality);
+        }
 
-      fetch(dataUrl)
-        .then((res) => res.blob())
-        .then((blob) => {
-          const compressedFile = new File([blob], file.name, {
-            type: "image/jpeg",
-          });
-          resolve(compressedFile);
-        })
-        .catch(reject);
-    };
+        // Base64를 Blob으로 변환
+        fetch(dataUrl)
+          .then((res) => res.blob())
+          .then((blob) => {
+            const compressedFile = new File([blob], file.name, {
+              type: "image/jpeg",
+            });
+            resolve(compressedFile);
+          })
+          .catch(reject);
+      };
 
-    img.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
+      img.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
 export default function Tweet({
   createdAt,
