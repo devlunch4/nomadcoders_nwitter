@@ -1,6 +1,7 @@
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { useState } from "react";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase";
+import { doc, setDoc } from "firebase/firestore";
 import { Link, useNavigate } from "react-router-dom";
 import { FirebaseError } from "firebase/app";
 import {
@@ -22,11 +23,8 @@ export default function CreateAccount() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  // const [confirm, setConfirm] = useState("");
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const {
-      target: { name, value },
-    } = e;
+    const { target: { name, value } } = e;
     if (name === "name") {
       setName(value);
     } else if (name === "email") {
@@ -35,37 +33,35 @@ export default function CreateAccount() {
       setPassword(value);
     }
   };
+
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
-    if (isLoading || name === "" || email === "" || password === "") {
-      return;
-    }
+    if (isLoading || name === "" || email === "" || password === "") return;
     try {
-      // firebase func
       setLoading(true);
-      const credentials = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-      console.log(credentials.user);
-      await updateProfile(credentials.user, {
-        displayName: name,
-      });
+      const credentials = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(credentials.user, { displayName: name });
+
+      // Save nickname in Firestore
+      const profileRef = doc(db, "profiles", credentials.user.uid);
+      await setDoc(profileRef, {
+        nickname: name, // Use the entered name as the nickname
+        userId: credentials.user.uid,
+        createdAt: Date.now(),
+      }, { merge: true });
+
       navigate("/");
     } catch (e) {
       if (e instanceof FirebaseError) {
-        // console.log(e.code, e.message);
+        console.log(`code: ${e.code}\nMessage: ${e.message}`);
         setError(e.message);
       }
-
-      //setError
     } finally {
       setLoading(false);
     }
-    // console.log(name, email, password);
   };
+
   return (
     <Wrapper>
       <Title>Join 𝕏</Title>
@@ -94,15 +90,15 @@ export default function CreateAccount() {
           type="password"
           required
         />
-        {/* <Input name="confirm" placeholder="Confirm Password" type="password" */}
         <Input
           type="submit"
           value={isLoading ? "Loading..." : "Create Account"}
+          disabled={isLoading}
         />
       </Form>
       {error !== "" ? <Error>{error}</Error> : null}
       <Switcher>
-        Already have an account? <Link to="/login">Log in &rarr;</Link>
+        Already have an account? <Link to="/login">Log in →</Link>
       </Switcher>
       <GithubButton />
       <GoogleLoginButton />

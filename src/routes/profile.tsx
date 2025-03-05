@@ -57,6 +57,14 @@ const Name = styled.span`
   font-size: 22px;
 `;
 
+const NicknameInput = styled.input`
+  padding: 8px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-top: 10px;
+`;
+
 const Tweets = styled.div`
   display: flex;
   width: 100%;
@@ -80,7 +88,7 @@ const SaveBtn = styled.button`
 
 const CancelBtn = styled.button`
   padding: 8px 16px;
-  background-color: #666; // 고정된 색상으로 단순화
+  background-color: #666;
   color: white;
   border: none;
   border-radius: 4px;
@@ -98,8 +106,7 @@ const Message = styled.p`
   text-align: center;
 `;
 
-// 이미지 압축 함수 (1MB 미만 보장)
-// Image compression function (ensures less than 1MB)
+// 이미지 압축 함수 (기존 유지)
 const compressProfileImage = (
   file: File,
   maxSizeMB: number
@@ -166,6 +173,8 @@ export default function Profile() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [nickname, setNickname] = useState<string>(""); // 닉네임 상태 추가
+  const [editNickname, setEditNickname] = useState<string>(""); // 닉네임 편집용
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -175,7 +184,19 @@ export default function Profile() {
     if (!user) return;
     const profileRef = doc(db, "profiles", user.uid);
     const profileSnap = await getDoc(profileRef);
-    if (profileSnap.exists()) setAvatar(profileSnap.data().avatar || null);
+    if (profileSnap.exists()) {
+      const data = profileSnap.data();
+      setAvatar(data.avatar || null);
+      setNickname(data.nickname || user.displayName || "Anonymous");
+    } else {
+      // 프로필이 없으면 초기값 설정
+      setNickname(user.displayName || "Anonymous");
+      await setDoc(profileRef, {
+        nickname: user.displayName || "Anonymous",
+        userId: user.uid,
+        createdAt: Date.now(),
+      }, { merge: true });
+    }
   };
 
   // 아바타 미리보기 업데이트
@@ -199,7 +220,7 @@ export default function Profile() {
       const profileRef = doc(db, "profiles", user.uid);
       await setDoc(
         profileRef,
-        { avatar: previewAvatar, updatedAt: Date.now(), userId: user.uid },
+        { avatar: previewAvatar, updatedAt: Date.now() },
         { merge: true }
       );
       setAvatar(previewAvatar);
@@ -215,6 +236,28 @@ export default function Profile() {
   // 아바타 변경 취소
   // Cancel avatar change
   const cancelAvatarChange = () => setPreviewAvatar(null);
+
+  // 닉네임 저장
+  // NickName savck
+  const saveNickname = async () => {
+    if (!user || !editNickname || editNickname === nickname) return;
+    setIsSaving(true);
+    try {
+      const profileRef = doc(db, "profiles", user.uid);
+      await setDoc(
+        profileRef,
+        { nickname: editNickname, updatedAt: Date.now() },
+        { merge: true }
+      );
+      setNickname(editNickname);
+      setEditNickname("");
+    } catch (e) {
+      console.error("Nickname save error:", e);
+      alert("Failed to save nickname. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // 트윗 가져오기
   // Fetch tweets
@@ -261,6 +304,7 @@ export default function Profile() {
   // Real-time tweet updates and initial load
   useEffect(() => {
     if (!user) return;
+    fetchProfile();
     const tweetQuery = query(
       collection(db, "tweets"),
       where("userId", "==", user.uid),
@@ -280,7 +324,6 @@ export default function Profile() {
       setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
       setHasMore(snapshot.docs.length === 5);
     });
-    fetchProfile();
     return () => unsubscribe();
   }, [user]);
 
@@ -334,7 +377,15 @@ export default function Profile() {
           </CancelBtn>
         </>
       )}
-      <Name>{user?.displayName ?? "Anonymous"}</Name>
+      <Name>{nickname}</Name>
+      <NicknameInput
+        value={editNickname}
+        onChange={(e) => setEditNickname(e.target.value)}
+        placeholder="Enter new nickname"
+      />
+      <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
+        {isSaving ? "Saving..." : "Save Nickname"}
+      </SaveBtn>
       <Tweets>
         {tweets.length > 0 ? (
           tweets.map((tweet) => <Tweet key={tweet.id} {...tweet} />)
