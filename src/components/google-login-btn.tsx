@@ -38,6 +38,8 @@ export default function GoogleLoginButton() {
       const profileSnap = await getDoc(profileRef);
       if (!profileSnap.exists()) {
         await setDoc(profileRef, {
+          email: user.email,
+          username: user.displayName,
           nickname: user.displayName || "Anonymous",
           userId: user.uid,
           createdAt: Date.now(),

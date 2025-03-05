@@ -21,7 +21,7 @@ import { ITweet } from "../components/timeline";
 import Tweet from "../components/tweet";
 import Footer from "../components/footer";
 
-// Styled components definition (기존 스타일 유지)
+// Styled components definition
 const Wrapper = styled.div`
   display: flex;
   align-items: center;
@@ -56,7 +56,6 @@ const AvatarInput = styled.input`
 const Email = styled.span`
   font-size: 22px;
 `;
-
 const Name = styled.span`
   font-size: 22px;
 `;
@@ -83,14 +82,14 @@ const Tweets = styled.div`
 
 const SaveBtn = styled.button`
   padding: 8px 16px;
-  background-color: SpringGreen;
-  color: black;
+  background-color: #1d9bf0;
+  color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   margin-top: 10px;
   &:disabled {
-    background-color: LightGrey;
+    background-color: #cccccc;
     cursor: not-allowed;
   }
 `;
@@ -109,34 +108,23 @@ const CancelBtn = styled.button`
   }
 `;
 
-const EditBtn = styled.button`
-  padding: 6px 12px;
-  background-color: LightGrey;
-  color: Black;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-top: 5px;
-  &:hover {
-    background-color: #666;
-  }
-`;
-
 const Message = styled.p`
   font-size: 16px;
   color: #666;
   text-align: center;
 `;
 
-// Function to compress profile image (기존 함수 유지)
+// Function to compress profile image (unchanged from original)
 const compressProfileImage = (
   file: File,
   maxSizeMB: number
 ): Promise<string> => {
+  // Returns a promise that resolves with a compressed image in base64 format
   return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
 
+    // Load file as data URL
     reader.onload = (e) => (img.src = e.target?.result as string);
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -146,6 +134,7 @@ const compressProfileImage = (
       const maxBytes = maxSizeMB * 1024 * 1024;
       const MAX_DIMENSION = 800;
 
+      // Resize image if it exceeds maximum dimensions
       if (width > height && width > MAX_DIMENSION) {
         height *= MAX_DIMENSION / width;
         width = MAX_DIMENSION;
@@ -158,6 +147,7 @@ const compressProfileImage = (
       canvas.height = height;
       ctx.drawImage(img, 0, 0, width, height);
 
+      // Compress image iteratively until it fits within max size
       let quality = 0.9;
       let dataUrl = canvas.toDataURL("image/jpeg", quality);
       let byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
@@ -196,14 +186,13 @@ export default function Profile() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [email, setEmail] = useState("");
-  const [nickname, setNickname] = useState<string>(""); // 현재 닉네임 상태
-  const [username, setUsername] = useState<string>(""); // 사용자 이름 상태
-  const [editNickname, setEditNickname] = useState<string>(""); // 수정할 닉네임 입력 상태
-  const [isEditingNickname, setIsEditingNickname] = useState(false); // 닉네임 수정 모드 상태
+  const [nickname, setNickname] = useState<string>(""); // State for nickname
+  const [username, setUsername] = useState<string>(""); // State for username
+  const [editNickname, setEditNickname] = useState<string>(""); // State for editing nickname
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  // 프로필 데이터 가져오기 (기존 함수 유지)
+  // Fetch profile data from Firestore
   const fetchProfile = async () => {
     if (!user) return;
     const profileRef = doc(db, "profiles", user.uid);
@@ -212,9 +201,10 @@ export default function Profile() {
       const data = profileSnap.data();
       setAvatar(data.avatar || null);
       setNickname(data.nickname || user.displayName || "Anonymous");
-      setUsername(data.username || user.displayName || "Anonymous");
-      setEmail(data.email || user.email || "Anonymous");
+      setUsername(data.username || user.displayName || "Anonymous"); // Set username
+      setEmail(data.email || user.email || "Anonymous"); // set email
     } else {
+      // Set default values if profile doesn't exist
       const defaultName = user.displayName || "Anonymous";
       setNickname(defaultName);
       setUsername(defaultName);
@@ -223,7 +213,7 @@ export default function Profile() {
         {
           email: user.email,
           nickname: defaultName,
-          username: defaultName,
+          username: defaultName, // Add username
           userId: user.uid,
           createdAt: Date.now(),
         },
@@ -232,7 +222,7 @@ export default function Profile() {
     }
   };
 
-  // 아바타 변경 처리 (기존 함수 유지)
+  // Update avatar preview when a new file is selected
   const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!user || !e.target.files || e.target.files.length !== 1) return;
     try {
@@ -243,7 +233,7 @@ export default function Profile() {
     }
   };
 
-  // 아바타 저장 (기존 함수 유지)
+  // Save avatar to Firestore
   const saveAvatar = async () => {
     if (!user || !previewAvatar) return;
     setIsSaving(true);
@@ -264,10 +254,10 @@ export default function Profile() {
     }
   };
 
-  // 아바타 변경 취소 (기존 함수 유지)
+  // Cancel avatar change and reset preview
   const cancelAvatarChange = () => setPreviewAvatar(null);
 
-  // 닉네임 저장 함수 (기존 로직 활용 및 최적화)
+  // Save nickname to Firestore
   const saveNickname = async () => {
     if (!user || !editNickname || editNickname === nickname) return;
     setIsSaving(true);
@@ -280,7 +270,6 @@ export default function Profile() {
       );
       setNickname(editNickname);
       setEditNickname("");
-      setIsEditingNickname(false); // 저장 후 수정 모드 종료
     } catch (e) {
       console.error("Nickname save error:", e);
       alert("Failed to save nickname. Please try again.");
@@ -289,13 +278,7 @@ export default function Profile() {
     }
   };
 
-  // 닉네임 수정 모드 토글 함수
-  const toggleEditNickname = () => {
-    setIsEditingNickname((prev) => !prev);
-    setEditNickname(nickname); // 현재 닉네임을 수정 입력창에 초기값으로 설정
-  };
-
-  // 트윗 가져오기 (기존 함수 유지)
+  // Fetch tweets for the current user
   const fetchTweets = async (isInitialLoad = false) => {
     if (!user || !hasMore || isLoading) return;
     setIsLoading(true);
@@ -335,7 +318,7 @@ export default function Profile() {
     }
   };
 
-  // 실시간 트윗 업데이트 및 초기 로드 (기존 useEffect 유지)
+  // Set up real-time tweet updates and initial load
   useEffect(() => {
     if (!user) return;
     fetchProfile();
@@ -361,7 +344,7 @@ export default function Profile() {
     return () => unsubscribe();
   }, [user]);
 
-  // 무한 스크롤 설정 (기존 useEffect 유지)
+  // Set up infinite scroll
   useEffect(() => {
     observer.current = new IntersectionObserver(
       (entries) => {
@@ -410,31 +393,17 @@ export default function Profile() {
           </CancelBtn>
         </>
       )}
-      <Email>** {email} **</Email>
-      <Name>{username}</Name>
-      <Nickname>{nickname}</Nickname>
-      {/* 닉네임이 존재할 때만 수정 버튼 표시 */}
-      {nickname && (
-        <EditBtn onClick={toggleEditNickname}>
-          {isEditingNickname ? "Cancel Edit" : "Edit Nickname"}
-        </EditBtn>
-      )}
-      {/* 닉네임 수정 모드일 때 입력 필드와 저장 버튼 표시 */}
-      {isEditingNickname && (
-        <>
-          <NicknameInput
-            value={editNickname}
-            onChange={(e) => setEditNickname(e.target.value)}
-            placeholder="Enter new nickname"
-          />
-          <SaveBtn
-            onClick={saveNickname}
-            disabled={isSaving || !editNickname || editNickname === nickname}
-          >
-            {isSaving ? "Saving..." : "Save Nickname"}
-          </SaveBtn>
-        </>
-      )}
+      <Email>{email}</Email>
+      <Name>{username}</Name> {/* Display username from state */}
+      <Nickname>{nickname}</Nickname> {/* Display nickname from state */}
+      <NicknameInput
+        value={editNickname}
+        onChange={(e) => setEditNickname(e.target.value)}
+        placeholder="Enter new nickname"
+      />
+      <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
+        {isSaving ? "Saving..." : "Save Nickname"}
+      </SaveBtn>
       <Tweets>
         {tweets.length > 0 ? (
           tweets.map((tweet) => <Tweet key={tweet.id} {...tweet} />)
