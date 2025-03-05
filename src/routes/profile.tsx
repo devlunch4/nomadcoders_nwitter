@@ -255,7 +255,7 @@ export default function Profile() {
     if (!isEditingNickname) setEditNickname(nickname);
   };
 
-  // Fetch tweets
+  // Fetch tweets for infinite scroll
   const fetchTweets = async (initial = false) => {
     if (!user || !hasMore || isLoading) return;
     setIsLoading(true);
@@ -268,16 +268,11 @@ export default function Profile() {
         ...(lastDoc && !initial ? [startAfter(lastDoc)] : [])
       );
       const snapshot = await getDocs(tweetQuery);
-      const newTweets = snapshot.docs.map(
-        (doc) => ({ id: doc.id, ...doc.data() } as ITweet)
-      );
+      const newTweets = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ITweet));
       setTweets((prev) =>
         initial
           ? newTweets
-          : [
-              ...prev,
-              ...newTweets.filter((t) => !prev.some((p) => p.id === t.id)),
-            ]
+          : [...prev, ...newTweets.filter((t) => !prev.some((p) => p.id === t.id))]
       );
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === 5);
@@ -288,11 +283,16 @@ export default function Profile() {
     }
   };
 
-  // Combined useEffect for profile, tweets, and infinite scroll
+  // Initial tweet load and real-time updates
   useEffect(() => {
     if (!user) return;
 
     fetchProfile();
+
+    // Initial fetch for the first set of tweets
+    fetchTweets(true);
+
+    // Real-time updates for new tweets
     const tweetQuery = query(
       collection(db, "tweets"),
       where("userId", "==", user.uid),
@@ -300,26 +300,38 @@ export default function Profile() {
       limit(5)
     );
     const unsubscribe = onSnapshot(tweetQuery, (snapshot) => {
-      const updatedTweets = snapshot.docs.map(
-        (doc) => ({ id: doc.id, ...doc.data() } as ITweet)
-      );
-      setTweets(updatedTweets);
+      const updatedTweets = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ITweet));
+      setTweets((prev) => {
+        // Merge new tweets with existing ones, avoiding duplicates
+        const merged = [...updatedTweets, ...prev.filter((t) => !updatedTweets.some((u) => u.id === t.id))];
+        return merged.sort((a, b) => b.createdAt - a.createdAt); // Sort by createdAt descending
+      });
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === 5);
     });
 
+    return () => unsubscribe();
+  }, [user]);
+
+  // Infinite scroll setup
+  useEffect(() => {
+    if (!user) return;
+
     const observer = new IntersectionObserver(
-      (entries) => entries[0].isIntersecting && fetchTweets(),
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
+          fetchTweets(); // Fetch previous tweets on scroll
+        }
+      },
       { threshold: 1 }
     );
     const ref = loadMoreRef.current;
     if (ref) observer.observe(ref);
 
     return () => {
-      unsubscribe();
       if (ref) observer.unobserve(ref);
     };
-  }, [user]);
+  }, [user, hasMore, isLoading]);
 
   return (
     <Wrapper>
