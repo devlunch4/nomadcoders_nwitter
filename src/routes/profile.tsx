@@ -21,7 +21,7 @@ import { ITweet } from "../components/timeline";
 import Tweet from "../components/tweet";
 import Footer from "../components/footer";
 
-// 스타일 컴포넌트 정의
+// Styled components definition
 const Wrapper = styled.div`
   display: flex;
   align-items: center;
@@ -55,6 +55,11 @@ const AvatarInput = styled.input`
 
 const Name = styled.span`
   font-size: 22px;
+`;
+
+const Nickname = styled.span`
+  font-size: 22px;
+  color: blue;
 `;
 
 const NicknameInput = styled.input`
@@ -106,15 +111,17 @@ const Message = styled.p`
   text-align: center;
 `;
 
-// 이미지 압축 함수 (기존 유지)
+// Function to compress profile image (unchanged from original)
 const compressProfileImage = (
   file: File,
   maxSizeMB: number
 ): Promise<string> => {
+  // Returns a promise that resolves with a compressed image in base64 format
   return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
 
+    // Load file as data URL
     reader.onload = (e) => (img.src = e.target?.result as string);
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -124,6 +131,7 @@ const compressProfileImage = (
       const maxBytes = maxSizeMB * 1024 * 1024;
       const MAX_DIMENSION = 800;
 
+      // Resize image if it exceeds maximum dimensions
       if (width > height && width > MAX_DIMENSION) {
         height *= MAX_DIMENSION / width;
         width = MAX_DIMENSION;
@@ -136,6 +144,7 @@ const compressProfileImage = (
       canvas.height = height;
       ctx.drawImage(img, 0, 0, width, height);
 
+      // Compress image iteratively until it fits within max size
       let quality = 0.9;
       let dataUrl = canvas.toDataURL("image/jpeg", quality);
       let byteLength = (dataUrl.length * 3) / 4 - (dataUrl.indexOf(",") + 1);
@@ -173,13 +182,13 @@ export default function Profile() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [nickname, setNickname] = useState<string>(""); // 닉네임 상태 추가
-  const [editNickname, setEditNickname] = useState<string>(""); // 닉네임 편집용
+  const [nickname, setNickname] = useState<string>(""); // State for nickname
+  const [username, setUsername] = useState<string>(""); // State for username
+  const [editNickname, setEditNickname] = useState<string>(""); // State for editing nickname
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  // 프로필 데이터 가져오기
-  // Fetch profile data
+  // Fetch profile data from Firestore
   const fetchProfile = async () => {
     if (!user) return;
     const profileRef = doc(db, "profiles", user.uid);
@@ -188,19 +197,26 @@ export default function Profile() {
       const data = profileSnap.data();
       setAvatar(data.avatar || null);
       setNickname(data.nickname || user.displayName || "Anonymous");
+      setUsername(data.username || user.displayName || "Anonymous"); // Set username
     } else {
-      // 프로필이 없으면 초기값 설정
-      setNickname(user.displayName || "Anonymous");
-      await setDoc(profileRef, {
-        nickname: user.displayName || "Anonymous",
-        userId: user.uid,
-        createdAt: Date.now(),
-      }, { merge: true });
+      // Set default values if profile doesn't exist
+      const defaultName = user.displayName || "Anonymous";
+      setNickname(defaultName);
+      setUsername(defaultName);
+      await setDoc(
+        profileRef,
+        {
+          nickname: defaultName,
+          username: defaultName, // Add username
+          userId: user.uid,
+          createdAt: Date.now(),
+        },
+        { merge: true }
+      );
     }
   };
 
-  // 아바타 미리보기 업데이트
-  // Update avatar preview
+  // Update avatar preview when a new file is selected
   const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!user || !e.target.files || e.target.files.length !== 1) return;
     try {
@@ -211,8 +227,7 @@ export default function Profile() {
     }
   };
 
-  // 아바타 저장
-  // Save avatar
+  // Save avatar to Firestore
   const saveAvatar = async () => {
     if (!user || !previewAvatar) return;
     setIsSaving(true);
@@ -233,12 +248,10 @@ export default function Profile() {
     }
   };
 
-  // 아바타 변경 취소
-  // Cancel avatar change
+  // Cancel avatar change and reset preview
   const cancelAvatarChange = () => setPreviewAvatar(null);
 
-  // 닉네임 저장
-  // NickName savck
+  // Save nickname to Firestore
   const saveNickname = async () => {
     if (!user || !editNickname || editNickname === nickname) return;
     setIsSaving(true);
@@ -259,8 +272,7 @@ export default function Profile() {
     }
   };
 
-  // 트윗 가져오기
-  // Fetch tweets
+  // Fetch tweets for the current user
   const fetchTweets = async (isInitialLoad = false) => {
     if (!user || !hasMore || isLoading) return;
     setIsLoading(true);
@@ -300,8 +312,7 @@ export default function Profile() {
     }
   };
 
-  // 실시간 트윗 업데이트 및 초기 로드
-  // Real-time tweet updates and initial load
+  // Set up real-time tweet updates and initial load
   useEffect(() => {
     if (!user) return;
     fetchProfile();
@@ -327,8 +338,7 @@ export default function Profile() {
     return () => unsubscribe();
   }, [user]);
 
-  // 무한 스크롤 설정
-  // Infinite scroll setup
+  // Set up infinite scroll
   useEffect(() => {
     observer.current = new IntersectionObserver(
       (entries) => {
@@ -377,7 +387,8 @@ export default function Profile() {
           </CancelBtn>
         </>
       )}
-      <Name>{nickname}</Name>
+      <Name>{username}</Name> {/* Display username from state */}
+      <Nickname>{nickname}</Nickname> {/* Display nickname from state */}
       <NicknameInput
         value={editNickname}
         onChange={(e) => setEditNickname(e.target.value)}
