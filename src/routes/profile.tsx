@@ -21,7 +21,7 @@ import { ITweet } from "../components/timeline";
 import Tweet from "../components/tweet";
 import Footer from "../components/footer";
 
-// 스타일 컴포넌트 정의
+// Styled components definition
 const Wrapper = styled.div`
   display: flex;
   align-items: center;
@@ -116,7 +116,7 @@ const Message = styled.p`
   text-align: center;
 `;
 
-// 이미지 압축 함수 (기존 유지)
+// Image compression function (ensures less than 1MB)
 const compressProfileImage = (
   file: File,
   maxSizeMB: number
@@ -185,12 +185,11 @@ export default function Profile() {
   const [hasMore, setHasMore] = useState(true);
   const [nickname, setNickname] = useState<string>("");
   const [editNickname, setEditNickname] = useState<string>("");
-  const [isEditingNickname, setIsEditingNickname] = useState(false); // 닉네임 편집 모드 상태 추가
+  const [isEditingNickname, setIsEditingNickname] = useState(false); // Nickname editing mode state
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  // 프로필 데이터 가져오기
-  // Fetch profile data
+  // Fetch profile data from Firestore
   const fetchProfile = async () => {
     if (!user) return;
     const profileRef = doc(db, "profiles", user.uid);
@@ -200,7 +199,7 @@ export default function Profile() {
       setAvatar(data.avatar || null);
       setNickname(data.nickname || user.displayName || "Anonymous");
     } else {
-      // 프로필이 없으면 초기값 설정
+      // Set initial profile data if it doesn't exist
       setNickname(user.displayName || "Anonymous");
       await setDoc(profileRef, {
         nickname: user.displayName || "Anonymous",
@@ -210,7 +209,6 @@ export default function Profile() {
     }
   };
 
-  // 아바타 미리보기 업데이트
   // Update avatar preview
   const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!user || !e.target.files || e.target.files.length !== 1) return;
@@ -222,8 +220,7 @@ export default function Profile() {
     }
   };
 
-  // 아바타 저장
-  // Save avatar
+  // Save avatar to Firestore
   const saveAvatar = async () => {
     if (!user || !previewAvatar) return;
     setIsSaving(true);
@@ -244,25 +241,40 @@ export default function Profile() {
     }
   };
 
-  // 아바타 변경 취소
   // Cancel avatar change
   const cancelAvatarChange = () => setPreviewAvatar(null);
 
-  // 닉네임 저장
-  // NickName savck
+  // Save nickname and store previous nicknames in Firestore
   const saveNickname = async () => {
     if (!user || !editNickname || editNickname === nickname) return;
     setIsSaving(true);
     try {
       const profileRef = doc(db, "profiles", user.uid);
+      const profileSnap = await getDoc(profileRef);
+      const currentData = profileSnap.exists() ? profileSnap.data() : {};
+      const beforeNicknames = currentData.beforeNicknames || []; // Get existing previous nicknames or empty array
+      
+      // Add current nickname to beforeNicknames before updating
+      if (nickname) {
+        beforeNicknames.push({
+          nickname: nickname,
+          changedAt: Date.now(),
+        });
+      }
+
+      // Update Firestore with new nickname and previous nicknames
       await setDoc(
         profileRef,
-        { nickname: editNickname, updatedAt: Date.now() },
+        {
+          nickname: editNickname,
+          beforeNicknames: beforeNicknames, // Store array of previous nicknames
+          updatedAt: Date.now(),
+        },
         { merge: true }
       );
       setNickname(editNickname);
       setEditNickname("");
-      setIsEditingNickname(false); // 저장 후 편집 모드 종료
+      setIsEditingNickname(false); // Exit editing mode after saving
     } catch (e) {
       console.error("Nickname save error:", e);
       alert("Failed to save nickname. Please try again.");
@@ -271,14 +283,12 @@ export default function Profile() {
     }
   };
 
-  // 닉네임 편집 모드 토글
   // Toggle nickname editing mode
   const toggleEditNickname = () => {
     setIsEditingNickname((prev) => !prev);
-    if (!isEditingNickname) setEditNickname(nickname); // 편집 시작 시 현재 닉네임으로 초기화
+    if (!isEditingNickname) setEditNickname(nickname); // Initialize input with current nickname when editing starts
   };
 
-  // 트윗 가져오기
   // Fetch tweets
   const fetchTweets = async (isInitialLoad = false) => {
     if (!user || !hasMore || isLoading) return;
@@ -319,7 +329,6 @@ export default function Profile() {
     }
   };
 
-  // 실시간 트윗 업데이트 및 초기 로드
   // Real-time tweet updates and initial load
   useEffect(() => {
     if (!user) return;
@@ -346,7 +355,6 @@ export default function Profile() {
     return () => unsubscribe();
   }, [user]);
 
-  // 무한 스크롤 설정
   // Infinite scroll setup
   useEffect(() => {
     observer.current = new IntersectionObserver(
@@ -397,9 +405,9 @@ export default function Profile() {
         </>
       )}
       <Name>{nickname}</Name>
-      {/* 닉네임 편집 버튼 추가 / Add nickname edit button */}
+      {/* Add nickname edit button */}
       <EditBtn onClick={toggleEditNickname}>
-        {isEditingNickname ? "Cancel" : "Change NikcName"} 
+        {isEditingNickname ? "Cancel" : "Change Nickname"}
         {/* Toggle between "Cancel" and "Change Nickname" */}
       </EditBtn>
       {isEditingNickname && (
@@ -410,7 +418,7 @@ export default function Profile() {
             placeholder="Please enter a new nickname"
           />
           <SaveBtn onClick={saveNickname} disabled={isSaving || !editNickname}>
-            {isSaving ? "Saving..." : "Save NickName"}
+            {isSaving ? "Saving..." : "Save Nickname"}
           </SaveBtn>
         </>
       )}
